@@ -2,4 +2,4 @@ flask
 google-genai
 requests
 icalendar
-gunicorn
+psycopg2-binary
