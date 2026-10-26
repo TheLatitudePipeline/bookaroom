@@ -1,22 +1,23 @@
 import os
 import requests
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from flask import Flask, request, jsonify, render_template_string
 from google import genai
 from google.genai import types
-from supabase import create_client, Client
 from icalendar import Calendar
 from datetime import datetime
 
 app = Flask(__name__)
 
-# Initialize Google AI Studio & Supabase Client
+# Initialize Google AI Studio Client
 ai_client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL else None
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+def get_db_connection():
+    return psycopg2.connect(DATABASE_URL, sslmode='require')
 
 def get_live_calendar_status(ical_url):
-    """Downloads the live Google Calendar iCal feed to prevent overbookings."""
     if not ical_url or ical_url.strip() == "":
         return "No external calendar connected yet. All rooms assumed open."
     try:
@@ -63,7 +64,7 @@ CHAT_HTML = """
 </head>
 <body>
     <div id="chatbox">
-        <div id="messages"><div class="msg bot">Welcome to {{ property_name }}. I am your 24/7 automated gate assistant. How can I help you secure a room right now?</div></div>
+        <div id="messages"><div class="msg bot">Welcome to {{ property_name }}. I am your 24/7 automated gate assistant. How can I help you right now?</div></div>
         <div id="input-area">
             <input type="text" id="user-input" placeholder="Ask about prices, rooms, or open dates..." onkeypress="if(event.key==='Enter') sendMessage()">
             <button onclick="sendMessage()">Send</button>
@@ -102,28 +103,39 @@ CHAT_HTML = """
 
 @app.route("/gate/<guesthouse_slug>", methods=["GET"])
 def dynamic_gate_page(guesthouse_slug):
-    if not supabase:
-        return "Database environment keys missing on server.", 500
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("SELECT * FROM guesthouses WHERE slug = %s", (guesthouse_slug,))
+        guesthouse = cur.fetchone()
+        cur.close()
+        conn.close()
         
-    res = supabase.table("guesthouses").select("*").eq("slug", guesthouse_slug).execute()
-    if not res.data:
-        return "Guesthouse system profile not found.", 404
-        
-    guesthouse = res.data[0]
-    return render_template_string(CHAT_HTML, property_name=guesthouse["name"], slug=guesthouse_slug)
+        if not guesthouse:
+            return "Guesthouse system profile not found.", 404
+            
+        return render_template_string(CHAT_HTML, property_name=guesthouse["name"], slug=guesthouse_slug)
+    except Exception as e:
+        return f"Database connectivity error: {str(e)}", 500
 
 @app.route("/chat/<guesthouse_slug>", methods=["POST"])
 def dynamic_chat_endpoint(guesthouse_slug):
-    res = supabase.table("guesthouses").select("*").eq("slug", guesthouse_slug).execute()
-    if not res.data:
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("SELECT * FROM guesthouses WHERE slug = %s", (guesthouse_slug,))
+        guesthouse = cur.fetchone()
+        cur.close()
+        conn.close()
+    except Exception:
+        return jsonify({"reply": "Database wiring issue."}), 500
+        
+    if not guesthouse:
         return jsonify({"reply": "System configuration error."}), 404
         
-    guesthouse = res.data[0]
     user_text = request.json.get("message", "")
-    
     calendar_status = get_live_calendar_status(guesthouse["ical_url"])
     
-    # Core multi-tenant prompt instructing Gemini to give the direct payment details
     system_instruction = (
         f"You are the virtual booking assistant for {guesthouse['name']}. You converse politely and professionally.\\n"
         f"Property Profile & Prices: {guesthouse['custom_prompt']}\\n"
