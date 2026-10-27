@@ -392,8 +392,9 @@ def fetch_guesthouse(slug):
 def dynamic_gate_page(guesthouse_slug):
     try:
         guesthouse = fetch_guesthouse(guesthouse_slug)
-    except Exception:
-        return "Service temporarily unavailable. Please try again shortly.", 500
+    except Exception as e:
+        app.logger.exception("Database error on gate page")
+        return f"Database error (temporary debug): {type(e).__name__}: {e}", 500
 
     if not guesthouse:
         return "Guesthouse system profile not found.", 404
