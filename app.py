@@ -461,8 +461,9 @@ def dynamic_chat_endpoint(guesthouse_slug):
             config=types.GenerateContentConfig(system_instruction=system_instruction),
         )
         return jsonify({"reply": response.text or "Sorry, I could not answer that. Please try again."})
-    except Exception:
-        return jsonify({"reply": "System busy. Please resend your message."}), 200
+    except Exception as e:
+        app.logger.exception("Gemini error in chat endpoint")
+        return jsonify({"reply": f"AI error (temporary debug): {type(e).__name__}: {str(e)[:300]}"}), 200
 
 
 if __name__ == "__main__":
