@@ -1,4 +1,5 @@
 import os
+import time
 import requests
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -456,11 +457,21 @@ def dynamic_chat_endpoint(guesthouse_slug):
     )
 
     try:
-        response = ai_client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=contents,
-            config=types.GenerateContentConfig(system_instruction=system_instruction),
-        )
+        response = None
+        for attempt in range(3):
+            try:
+                response = ai_client.models.generate_content(
+                    model=GEMINI_MODEL,
+                    contents=contents,
+                    config=types.GenerateContentConfig(system_instruction=system_instruction),
+                )
+                break
+            except Exception as err:
+                busy = any(code in str(err) for code in ("503", "UNAVAILABLE", "429"))
+                if busy and attempt < 2:
+                    time.sleep(1.5 * (attempt + 1))
+                    continue
+                raise
         return jsonify({"reply": response.text or "Sorry, I could not answer that. Please try again."})
     except Exception as e:
         app.logger.exception("Gemini error in chat endpoint")
