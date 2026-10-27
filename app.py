@@ -12,6 +12,7 @@ app = Flask(__name__)
 
 ai_client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 DATABASE_URL = os.environ.get("DATABASE_URL")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
 
 
 def get_db_connection():
@@ -456,7 +457,7 @@ def dynamic_chat_endpoint(guesthouse_slug):
 
     try:
         response = ai_client.models.generate_content(
-            model="gemini-2.5-flash",
+            model=GEMINI_MODEL,
             contents=contents,
             config=types.GenerateContentConfig(system_instruction=system_instruction),
         )
